@@ -12,7 +12,7 @@ columnas:
 - 'image_size': tamaño de la imagen procesada (ancho x alto).
 - 'class': clase a la que pertenece la imagen. (aluminium_foil, brown_bread, corduroy, etc...)
 - 'embedding_file': ruta y nombre del archivo de la incrustación (embedding) de la imagen.
-- 'embedding_method': método de incrustación utilizado ('hilbert_curve', 'raster-1', 'raster-2', 'zigzag-1', 'zigzag-2')
+- 'embedding_method': método de incrustación utilizado ('hilbert_curve', 'raster_1', 'raster_2', 'zigzag_1', 'zigzag_2')
 - 'embedding_dimension' (m): dimensión de los patrones ordinales.
 - 'time_delay' (tau): retardo temporal utilizado para calcular los patrones ordinales.
 - 'ordinal_pattern': patrón ordinal representado como una tupla de enteros.
@@ -37,7 +37,7 @@ def transform_dataset(image_path, output_path, size=(128,128), color_mode='grays
         verbose (bool): Si es True, mostrará información detallada del proceso.
     ---
     Returns:
-        df (pd.DataFrame): DataFrame (con todos los campos) con la información de las imágenes transformadas: image_file, image_id, image_size, class.
+        df (pd.DataFrame): DataFrame los campos: image_file, image_id, image_size, class.
     '''
 
     # Informa transformación al usuario
@@ -50,9 +50,8 @@ def transform_dataset(image_path, output_path, size=(128,128), color_mode='grays
     else:
         raise FileExistsError(f"Output path {output_path} already exists. Please choose a different path or remove the existing one.")
     
-    #creación de dataframe
-    df = pd.DataFrame(columns=['image_file', 'image_id', 'image_size', 'class', 'embedding_file', 'embedding_method', 'embedding_dimension', 'time_delay', 'ordinal_pattern', 'entropy_type', 'entropy_parameter', 'entropy_value', 'complexity_value'])
-
+    #creación de dataframe de salida
+    df = pd.DataFrame(columns=['image_file', 'image_id', 'image_size', 'class'])
     
     # Contador para enumerar las imágenes transformadas
     counter = 0
@@ -108,33 +107,34 @@ def transform_dataset(image_path, output_path, size=(128,128), color_mode='grays
                 cv.imwrite(output_file, img)
 
                 # Agregar al df los datos
-                df = df.append({'image_file': output_file, 'image_id': image_id, 'image_size': size, 'class': class_name}, ignore_index=True)
+                df = pd.concat([df, pd.DataFrame([{'image_file': output_file, 'image_id': image_id, 'image_size': size, 'class': class_name}])], ignore_index=True)
 
                 # Informa al usuario que la imagen ha sido guardada
                 if verbose:
                     print(f"Saved transformed image to: {output_file}")
 
-    return counter
+    return df
 
 
 
 import numpy as np
 from hilbertcurve.hilbertcurve import HilbertCurve
 
-def embedding_hilbert_curve (df, output_path, size=(128,128), mode='fill', verbose=True):
-    '''rellena los campos del dataframe correspondientes al embeddig y la almacena los datos formato numpy.
+def embedding_images_from_dataframe (df, output_path, size=(128,128), embedding_method='hilbert_curve', verbose=True, override=False):
+    '''lee las imágenes de df y devuelve otro data frame complentado archivo con el embedding y el método de embedding.
     Args:
-        df (pd.DataFrame): DataFrame que contiene la información de las imágenes a transformar.
-        output_path (str): Ruta de la carpeta donde se guardarán los datos del emmbeding de la curva de Hilbert.
-        size (tuple): Solo trabaja sobre las imágenes del df con el tamaño especificado. Tamaño de las imágenes (deben ser cuadradas y de tamaño potencia de 2).
-        mode (str): Modo de trabajo: 
-            - 'fill': rellena los campos del dataframe correspondientes al embedding y guarda los datos en formato numpy.
-            - 'append': toma los datos de todas las imágenes con un embedding diferente a 'hilbert_curve' y los agregar al dataframe con los campos correspondientes al embedding de la curva de Hilbert.
-            - 'overwrite': sobrescribe los campos del dataframe correspondientes al embedding de la curva de Hilbert con los datos del embedding de la curva de Hilbert.
+        df (pd.DataFrame): DataFrame que contiene la información de las imágenes a transformar. Debe contener las columnas: 'image_file', 'image_id', 'image_size', 'class'.
+        output_path (str): Ruta de la carpeta donde se guardarán los datos del emmbeding.
+        size (tuple): Solo trabaja sobre las imágenes del df con el tamaño especificado. 
+        embedding_method (str): Método de embedding a utilizar. 
+            'hilbert': Aplica la curva de Hilbert para obtener el vector 1D. Requiere que las imágenes sean cuadradas y de tamaño potencia de 2 (e.g., 128x128, 256x256).
+            'raster1': Aplica un recorrido raster (fila por fila) para obtener el vector 1D.
+            'raster2': Aplica un recorrido raster (columna por columna) para obtener el vector 1D.
         verbose (bool): Si es True, muestra información adicional durante el proceso.
+        override (bool): Si es True, permite sobrescribir el contenido del output_path si ya existe. Si es False, se lanzará un error si el output_path ya existe para evitar sobrescribir datos existentes.
     ---
     Returns:
-        int: Número de imágenes transformadas.
+        df_out (pd.Dataframe): Dataframe con los campos: 'image_file', 'image_id', 'image_size', 'class', 'embedding_file', 'embedding_method'
     '''
 
     # Verifica que el path de salida no exista, si no existe lo crea
@@ -142,22 +142,39 @@ def embedding_hilbert_curve (df, output_path, size=(128,128), mode='fill', verbo
     if not os.path.exists(output_path):
         os.makedirs(output_path)
     else:
-        raise FileExistsError(f"Output path {output_path} already exists. Please choose a different path or remove the existing one.")
+        if override:
+            if verbose:
+                print(f"Output path {output_path} already exists. Overriding existing data.")
+        else:
+            raise FileExistsError(f"Output path {output_path} already exists. Please choose a different path or remove the existing one.")
 
-    # Verifica que el tamaño especificado sea cuadrado y potencia de 2
-    if size[0] != size[1]:
-        raise ValueError(f"Size {size} is not square. The embedding to Hilbert curve requires square images.")
+    # crea un array para almacenar el embedding
+    embedding = np.zeros(size[0]*size[1], dtype=int)
+ 
+    if embedding_method == 'hilbert':
+      # Verifica que el tamaño especificado sea cuadrado y potencia de 2
+        if size[0] != size[1]:
+            raise ValueError(f"Size {size} is not square. The embedding to Hilbert curve requires square images.")
+        
+        n = size[0] # tamaño de la imagen (n x n)
 
-    n = size[0] # tamaño de la imagen (n x n)
-
-    if (n & (n - 1)) != 0:
-        raise ValueError(f"Size {size} is not a power of 2. The embedding to Hilbert curve requires images of size that is a power of 2.")
+        if (n & (n - 1)) != 0:
+            raise ValueError(f"Size {size} is not a power of 2. The embedding to Hilbert curve requires images of size that is a power of 2.")
     
-    # Aplica la curva de Hilbert para obtener el vector 1D
-    hilbert_curve = HilbertCurve(int(np.log2(n)), 2)  # iteration log2(n) para n x n, 2 dimensiones 
-    embedding = np.zeros(n*n, dtype=int)
-    distances = list(range(n*n))
-    points = hilbert_curve.points_from_distances(distances)
+        # Aplica la curva de Hilbert para obtener el vector 1D
+        hilbert_curve = HilbertCurve(int(np.log2(n)), 2)  # iteration log2(n) para n x n, 2 dimensiones 
+        
+        distances = list(range(n*n))
+        points = hilbert_curve.points_from_distances(distances)
+    elif embedding_method == 'raster2':
+        # Aplica un recorrido raster (columna por columna) para obtener el vector 1D
+        points = [(y, x) for x in range(size[1]) for y in range(size[0])]
+    else: # asume raster1
+        # Aplica un recorrido raster (fila por fila) para obtener el vector 1D        
+        points = [(y, x) for y in range(size[0]) for x in range(size[1])]
+
+    #creación de dataframe de salida
+    df_out = pd.DataFrame(columns=['image_file', 'image_id', 'image_size', 'class', 'embedding_file', 'embedding_method'])
 
     # para cada elemento del dataframe
     for index, row in df.iterrows():
@@ -165,113 +182,48 @@ def embedding_hilbert_curve (df, output_path, size=(128,128), mode='fill', verbo
         image_id = row['image_id']
         image_size = row['image_size']
         class_name = row['class']
-        if verbose:
-            print(f"Processing image: {image_file} with size {image_size} and class {class_name}")
 
-        if (mode == 'fill'):
-            if row['embedding_method'] == '':
-                row['embedding_method'] = 'hilbert_curve'
-        
-                #continuar
-        
-        #todo: mode 'append' y 'overwrite'
+        #convertir a tupla el tamaño de la imagen
+        image_size = tuple(map(int, image_size.strip('()').split(',')))
 
-        
-
-        # Verifica que la imagen tenga el tamaño especificado
         if image_size != size:
             if verbose:
-                print(f"Skipping image {image_file} with size {image_size} (expected size: {size})")
+                print(f"Skipping image: {image_file} with size {image_size} as it does not match the specified size {size}.")
             continue
 
-        # Leer la imagen
-        img = cv.imread(image_file, cv.IMREAD_GRAYSCALE)
-
-        # Aplica la curva de Hilbert para obtener el vector 1D
-        hilbert_curve = HilbertCurve(int(np.log2(n)), 2)  # iteration log2(n) para n x n, 2 dimensiones 
-        vector_hilbert = np.zeros(n*n, dtype=int)
-        distances = list(range(n*n))
-        points = hilbert_curve.points_from_distances(distances)
-
-        for i, point in enumerate(points):
-            x, y = point
-            vector_hilbert[i] = img[y, x]
+        if verbose:
+            print(f"Processing image: {image_file} with size {image_size} and class {class_name}")
 
         # Crea la ruta de salida para la clase actual (subcarpeta)
         class_output_path = os.path.join(output_path, class_name)
         if not os.path.exists(class_output_path):
             os.makedirs(class_output_path)
 
+        # obtiene nombre del archivo
+        image_file = image_file.replace('\\', '/') # reemplaza las barras invertidas por barras normales para evitar problemas de ruta en Windows
+        image_name = image_file.split('/')[-1].split('.')[0] # obtiene el nombre del archivo sin la extensión
+        
         # Crea nombre del archivo de salida
-        output_file = os.path.join(class_output_path, f"{image_id}.npy")
-        np.save(output_file, vector_hilbert)
+        output_file = os.path.join(class_output_path, f"{image_name}.npy")
 
-        # Actualiza el dataframe con los campos correspondientes al embedding de la curva de Hilbert
-        df.at[index, 'embedding_file'] = output_file
-        df.at[index, 'embedding_method'] = 'hilbert_curve'
-        df.at[index, 'embedding_dimension'] = n*n
+        if verbose:
+            print(f"Output file for embedding: {output_file}")
 
-    # Verifica que todas las imágenes del dataset tengan el mismo tamaño y sean cuadradas         
-    for root, dirs, files in os.walk(img_dataset_path):
-        for file in files:
-            if file.endswith('.jpg') or file.endswith('.png'):
-                img = cv.imread(os.path.join(root, file))
-                height, width = img.shape[:2]
-                if height != width:
-                    raise ValueError(f"Image {file} is not square. All images must be square.")
-                if n == 0:
-                    n = height
-                elif n != height:
-                    raise ValueError(f"Image {file} has a different size than the others. All images must have the same size.")
-    
-    # Verifica que n sea una potencia de 2
-    if (n & (n - 1)) != 0:
-        raise ValueError(f"Image size {n} is not a power of 2. All images must have a size that is a power of 2.")
-    
-    iteration_hilbert_curve = int(np.log2(n)) # número de iteraciones para la curva de Hilbert (log2(n) para n x n)
+        # Leer la imagen
+        img = cv.imread(image_file, cv.IMREAD_GRAYSCALE)
 
-    # Calcula la curva de Hilbert para obtener el vector 1D de la matriz
-    hilbert_curve = HilbertCurve(iteration_hilbert_curve, 2)  # iteration 7 (128x128), 2 dimensiones 
-    vector_hilbert = np.zeros(n*n, dtype=int)
-    distances = list(range(n*n))
-    points = hilbert_curve.points_from_distances(distances)
+        # Crea el embedding siguiendo los puntos especificados por el método de embedding
+        for i, point in enumerate(points):
+            x, y = point
+            embedding[i] = img[y, x]
 
-    # Recorrer la carpeta de imágenes
-    counter = 0
-    for root, dirs, files in os.walk(img_dataset_path):
-        for file in files:
-            if file.endswith('.jpg') or file.endswith('.png'):
-                counter += 1
+        # guarda el embedding
+        np.save(output_file, embedding)
 
-                # Informa al usuario sobre el progreso de la transformación
-                if verbose:
-                    print(f"Processing image: {file} ({counter})")
+        if verbose:
+            print(f"Saved embedding to: {output_file}")
 
-                # Leer la imagen
-                img = cv.imread(os.path.join(root, file), cv.IMREAD_GRAYSCALE)
-
-                # Le deja solo un único canal (en caso de que la imagen tenga más de uno)
-                if len(img.shape) > 2:
-                    img = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
-
-                # Aplica la curva de Hilbert para obtener el vector 1D
-                for i, point in enumerate(points):
-                    x, y = point
-                    vector_hilbert[i] = img[y, x]
-
-                # Crea la ruta de salida para la clase actual (subcarpeta)
-                class_name = os.path.basename(root)
-                class_output_path = os.path.join(output_path, class_name)
-                if not os.path.exists(class_output_path):
-                    os.makedirs(class_output_path)
-
-                # Crea nombre del archivo de salida
-                output_file = os.path.join(class_output_path, f"{os.path.splitext(file)[0]}.npy")
-                np.save(output_file, vector_hilbert)
-
-                # Informa al usuario que la imagen ha sido guardada
-                if verbose:
-                    print(f"Saved transformed image to: {output_file}")
-
-    return counter
+        df_out = pd.concat([df_out, pd.DataFrame([{'image_file': image_file, 'image_id': image_id, 'image_size': image_size, 'class': class_name, 'embedding_file': output_file, 'embedding_method': embedding_method}])], ignore_index=True)
+        
+    return df_out
 
