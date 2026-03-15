@@ -2,3 +2,7 @@ __pycache__
 .venv/
 ordpy/
 test.ipynb
+odp*/
+results*/
+./emb/
+./img/
