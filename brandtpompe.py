@@ -191,6 +191,7 @@ def ordinal_probability_plot (p, m, tau, descrip='', color='skyblue', save_path=
         None
     """
     import matplotlib.pyplot as plt
+    import util as u
     
     labels = [i for i in range(len(p))]
 
@@ -199,9 +200,12 @@ def ordinal_probability_plot (p, m, tau, descrip='', color='skyblue', save_path=
     while (i>0 and p[i]==0):
         i -= 1
 
+    # calcular edgecolor 
+    edgecolor = u.oscurecer_color(color, 0.5)
+
     # Crear el gráfico de barras
     plt.figure(figsize=(8, 5))
-    plt.bar(labels, p, color=color, edgecolor='black', alpha=0.7)
+    plt.bar(labels, p, color=color, edgecolor=edgecolor, alpha=0.7)
     plt.xlabel('Patrones Ordinales')
     plt.ylabel('Frecuencia')
     plt.title(f'Distribución Ordinal ($m={m}$, $\\tau={tau}$)')
