@@ -4,5 +4,5 @@ ordpy/
 test.ipynb
 odp*/
 results*/
-./emb*
-./img*
+emb*
+img*
